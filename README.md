@@ -9,7 +9,14 @@ We ignored sential mode here
     * [initServerConfig()](https://github.com/Xuyuanp/redis/blob/6.0/src/server.c#L2338)
         * [populateCommandTable()](https://github.com/Xuyuanp/redis/blob/6.0/src/server.c#L3109)
             * TODO
-    * aclInit, module system, tls
+    * aclInit
+    * [moduleInitModulesSystem()](https://github.com/Xuyuanp/redis/blob/6.0/src/module.c#L7508)
+        * [moduleRegisterCoreAPI()](https://github.com/Xuyuanp/redis/blob/6.0/src/module.c#L8066)
+            * register all APIs with macro [REGISTER_API](https://github.com/Xuyuanp/redis/blob/6.0/src/module.c#L7502)
+        * init server.module_blocked_pipe
+        * create radix timer
+        * lock GIL mutex
+    * tlsInit
     * parse args and configurations
     * print banner
     * [initServer()](https://github.com/Xuyuanp/redis/blob/6.0/src/server.c#L2820)
@@ -50,8 +57,56 @@ We ignored sential mode here
                 * [acceptCommonHandler()](https://github.com/Xuyuanp/redis/blob/6.0/src/networking.c#L929)
                     * assert connection state
                     * assert total connection count
-                    * [createClient()]()
-                        * TODO
+                    * [createClient()](https://github.com/Xuyuanp/redis/blob/6.0/src/networking.c#L100)
+                        * connNonBlock
+                        * connEnableTcpNoDelay
+                        * keepAlive
+                        * [connSetReadHandler()](https://github.com/Xuyuanp/redis/blob/6.0/src/connection.h#L165) with callback
+                            * [conn->type->set_read_handler => CT_SOCKET.set_read_handler => connSocketSetReadHandler()](https://github.com/Xuyuanp/redis/blob/6.0/src/connection.h#L239)
+                                * if handler is NULL, remote read handler from event loop
+                                * aeCreateFieEvent with [ae_handler => CT_SOCKET.ae_hander => connSocketEventHandler()](https://github.com/Xuyuanp/redis/blob/6.0/src/connection.h#L255)
+                                    * call conn_handler and set it to NULL if state is CONN_STATE_CONNECTING and mask is AE_WRITEABLE and conn_handler is not NULL
+                                    * call read_handler if AE_READABLE
+                                    * call write_handler if AE_WRITABLE
+                            * callback [readQueryFromClient](https://github.com/Xuyuanp/redis/blob/6.0/src/networking.c#L1956)
+                                * return if [postponeClientRead()]()
+                                    * TODO
+                                * nread = [connRead()]()
+                                    * [conn->type->read => CT_SOCKET.read => connSocketRead](https://github.com/Xuyuanp/redis/blob/6.0/src/connection.c#L182)
+                                        * `read`
+                                * if nread == 0 then client closed, we free client here and return;
+                                * [processInputBuffer](https://github.com/Xuyuanp/redis/blob/6.0/src/networking.c#L1827)
+                                    * some cluster or bulk commands checking
+                                    * [processCommandAndResetClient()](https://github.com/Xuyuanp/redis/blob/6.0/src/networking.c#L1940)
+                                        * [processCommand()](https://github.com/Xuyuanp/redis/blob/6.0/src/server.c#L3540)
+                                            * [lookupCommand](https://github.com/Xuyuanp/redis/blob/6.0/src/server.c#L3185)
+                                                * lookup command from server.commands which defined in [populateCommandTable](https://github.com/Xuyuanp/redis/blob/6.0/src/server.c#L3109)
+                                                * we use `setCommand` and `getCommand` as examples here.
+                                                    * [setCommand](https://github.com/Xuyuanp/redis/blob/6.0/src/t_string.c#L97)
+                                                        * parse args
+                                                        * [setGenericCommand()](https://github.com/Xuyuanp/redis/blob/6.0/src/t_string.c#L68)
+                                                            * [genericSetKey](https://github.com/Xuyuanp/redis/blob/6.0/src/db.c#L244)
+                                                                * if key exists
+                                                                    * [dbAdd](https://github.com/Xuyuanp/redis/blob/6.0/src/db.c#L179)
+                                                                        * dictAdd db->dict
+                                                                * else
+                                                                    * [dbOverwrite](https://github.com/Xuyuanp/redis/blob/6.0/src/db.c#L214)
+                                                                        * free old val and set new val
+                                                            * [addReply](https://github.com/Xuyuanp/redis/blob/6.0/src/networking.c#L322)
+                                                                * [prepareClientToWrite()](https://github.com/Xuyuanp/redis/blob/6.0/src/networking.c#L233)
+                                                                    * [clientInstallWriteHandler()](https://github.com/Xuyuanp/redis/blob/6.0/src/networking.c#L192) if client has no pending data to write
+                                                                        * set CLIENT_PENDING_WRITE to c.flags
+                                                                        * add client to server.clients_pending_write
+                                                                        * server.clients_pending_write is used by [handleClientsWithPendingWrites]() or [handleClientsWithPendingWritesUsingThreads]() which is called in [beforeSleep](https://github.com/Xuyuanp/redis/blob/6.0/src/server.c#L2110) handler
+                                                                * [_AddReplyToBuffer()](https://github.com/Xuyuanp/redis/blob/6.0/src/networking.c#L263)
+                                            * [call](https://github.com/Xuyuanp/redis/blob/6.0/src/server.c#L3327)
+                                                * c->cmd->proc(c)
+                                        * [commandProcessed()]()
+                                            * TODO
+                        * [linkClient()]()
+                            * TODO
+                        * [initClientMultiState()]()
+                            * TODO
                     * [connAccept()](https://github.com/Xuyuanp/redis/blob/6.0/src/connection.h#L104)
                         * [type->accept => CT_SOCKET.accept => connSocketAccept](https://github.com/Xuyuanp/redis/blob/6.0/src/connection.c#L199)
                             * state = CONN_STATE_CONNECTED
@@ -59,7 +114,8 @@ We ignored sential mode here
                         * callback [clientAcceptHandler](https://github.com/Xuyuanp/redis/blob/6.0/src/networking.c#L868)
                             * assert connection state (connected)
                             * [moduleFireServerEvent()](https://github.com/Xuyuanp/redis/blob/6.0/src/module.c#L7352)
-                                * TODO
+                                * find event listener by eid, construct context and module data
+                                * call listener's callback with context, subid and module data
         * register before and after sleep handlers
         * open append-only-file (if needed)
     * module load from queue
